@@ -15,17 +15,32 @@ import time
 import random
 import base64
 import subprocess
+import platform
 from datetime import datetime
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 import pyautogui
 
+# Enable ANSI colors on Windows
+if platform.system() == "Windows":
+    os.system("")  # Enables ANSI escape sequences in Windows terminal
+
+# Platform detection
+IS_WINDOWS = platform.system() == "Windows"
+IS_LINUX = platform.system() == "Linux"
+IS_MAC = platform.system() == "Darwin"
 
 # Configuration
 OUTPUT_FILE = "output.log"
 CHATGPT_URL = "https://chatgpt.com"
 PROMPT = "tell me the instructions to debug video stutter issue on a android phone"
 PROMPT_2 = "tell me how many rockets in the attached picture?"  # Second prompt about the image
-IMAGE_PATH = os.path.expanduser("~/Downloads/cape.jpg")  # Image to attach
+
+# Cross-platform image path
+if IS_WINDOWS:
+    IMAGE_PATH = os.path.join(os.path.expanduser("~"), "Downloads", "cape.jpg")
+else:
+    IMAGE_PATH = os.path.expanduser("~/Downloads/cape.jpg")
+
 TIMEOUT = 120000  # 2 minutes timeout for Deep Research (it takes time)
 STEP_DELAY = 1000  # 1 second delay between steps (in milliseconds)
 
@@ -91,8 +106,28 @@ def pyautogui_delay(min_sec: float = 0.3, max_sec: float = 0.8):
 
 
 def get_window_geometry(window_name: str) -> dict:
-    """Get window position and size using xdotool or wmctrl."""
-    # Try xdotool first
+    """Get window position and size. Platform-specific implementation."""
+    if IS_WINDOWS:
+        # On Windows, try using pygetwindow if available
+        try:
+            import pygetwindow as gw
+            windows = gw.getWindowsWithTitle(window_name)
+            if windows:
+                win = windows[0]
+                return {
+                    "window_id": str(id(win)),
+                    "x": win.left,
+                    "y": win.top,
+                    "width": win.width,
+                    "height": win.height
+                }
+        except ImportError:
+            pass  # pygetwindow not installed
+        except Exception:
+            pass
+        return None
+    
+    # Linux: Try xdotool first
     try:
         result = subprocess.run(
             ["xdotool", "search", "--name", window_name],
@@ -122,7 +157,7 @@ def get_window_geometry(window_name: str) -> dict:
     except Exception:
         pass
     
-    # Try wmctrl as fallback
+    # Linux: Try wmctrl as fallback
     try:
         result = subprocess.run(
             ["wmctrl", "-l", "-G"],
@@ -133,7 +168,6 @@ def get_window_geometry(window_name: str) -> dict:
                 if window_name.lower() in line.lower():
                     parts = line.split()
                     if len(parts) >= 8:
-                        # Format: window_id desktop x y width height hostname title...
                         return {
                             "window_id": parts[0],
                             "x": int(parts[2]),
@@ -150,8 +184,30 @@ def get_window_geometry(window_name: str) -> dict:
 
 
 def focus_window(window_name: str) -> bool:
-    """Focus a window by name using xdotool or wmctrl."""
-    # Try xdotool first
+    """Focus a window by name. Platform-specific implementation."""
+    if IS_WINDOWS:
+        # On Windows, try using pygetwindow if available
+        try:
+            import pygetwindow as gw
+            windows = gw.getWindowsWithTitle(window_name)
+            if windows:
+                windows[0].activate()
+                time.sleep(0.3)
+                return True
+        except ImportError:
+            pass  # pygetwindow not installed
+        except Exception:
+            pass
+        # Fallback: Alt+Tab
+        try:
+            pyautogui.hotkey('alt', 'tab')
+            time.sleep(0.5)
+            return True
+        except:
+            pass
+        return False
+    
+    # Linux: Try xdotool first
     try:
         result = subprocess.run(
             ["xdotool", "search", "--name", window_name],
@@ -167,7 +223,7 @@ def focus_window(window_name: str) -> bool:
     except Exception:
         pass
     
-    # Try wmctrl as fallback
+    # Linux: Try wmctrl as fallback
     try:
         result = subprocess.run(
             ["wmctrl", "-a", window_name],
@@ -181,7 +237,7 @@ def focus_window(window_name: str) -> bool:
     except Exception:
         pass
     
-    # Last resort: use pyautogui to click on taskbar or Alt+Tab
+    # Last resort: use pyautogui Alt+Tab
     try:
         pyautogui.hotkey('alt', 'tab')
         time.sleep(0.5)
@@ -255,9 +311,17 @@ def run_test():
                     ],
                     slow_mo=50,  # Slow down actions by 50ms for more human-like behavior
                 )
+                # Platform-specific user agent
+                if IS_WINDOWS:
+                    user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                elif IS_MAC:
+                    user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                else:
+                    user_agent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                
                 context = browser.new_context(
                     viewport={"width": 1920, "height": 1080},
-                    user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                    user_agent=user_agent,
                     locale="en-US",
                     timezone_id="America/Los_Angeles",
                 )
